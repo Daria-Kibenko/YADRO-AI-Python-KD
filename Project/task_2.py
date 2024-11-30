@@ -1,119 +1,67 @@
-from msilib.schema import File
-
-from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
-import uuid
+from uuid import uuid4
 from rdkit import Chem
-from rdkit.Chem import Draw
 
-# Инициализация приложения
+from task_1 import substructure_search
+
 app = FastAPI()
 
+# In-memory storage for molecules
+molecule_db = {}
 
-# Модель молекулы
+
 class Molecule(BaseModel):
     smiles: str
-    identifier: Optional[str] = None  # Идентификатор генерируется, если не передан
 
 
-# Модель для обновления молекулы
 class MoleculeUpdate(BaseModel):
-    smiles: Optional[str] = None  # Только для обновления SMILES
+    smiles: Optional[str]
 
 
-# Модель для ответа поиска подструктуры
-class SubstructureSearchResponse(BaseModel):
-    matched_molecules: List[str]
-
-
-# Временное хранилище молекул (в памяти)
-molecules_db = {}
-
-
-# Функция для поиска подструктуры
-def substructure_search(molecules: List[str], substructure: str) -> List[str]:
-    substructure_mol = Chem.MolFromSmiles(substructure)
-    if not substructure_mol:
-        raise ValueError("Invalid substructure SMILES string")
-
-    matched_molecules = []
-    for mol_smiles in molecules:
-        mol = Chem.MolFromSmiles(mol_smiles)
-        if mol and mol.HasSubstructMatch(substructure_mol):
-            matched_molecules.append(mol_smiles)
-
-    return matched_molecules
-
-
-# API маршруты
-
-@app.post("/molecules/")
+@app.post("/molecule/")
 def add_molecule(molecule: Molecule):
-    if not molecule.identifier:
-        molecule.identifier = str(uuid.uuid4())
-
-    if molecule.identifier in molecules_db:
-        raise HTTPException(status_code=400, detail="Molecule already exists")
-
-    molecules_db[molecule.identifier] = molecule
-    return {"message": "Molecule added", "identifier": molecule.identifier}
+    # Generate a unique identifier for the molecule
+    molecule_id = str(uuid4())
+    molecule_db[molecule_id] = molecule.smiles
+    return {"id": molecule_id}
 
 
-@app.get("/molecules/{identifier}")
-def get_molecule(identifier: str):
-    molecule = molecules_db.get(identifier)
-    if not molecule:
+@app.get("/molecule/{molecule_id}")
+def get_molecule(molecule_id: str):
+    if molecule_id not in molecule_db:
         raise HTTPException(status_code=404, detail="Molecule not found")
-    return molecule
+    return {"id": molecule_id, "smiles": molecule_db[molecule_id]}
 
 
-@app.put("/molecules/{identifier}")
-def update_molecule(identifier: str, molecule_update: MoleculeUpdate):
-    molecule = molecules_db.get(identifier)
-    if not molecule:
+@app.put("/molecule/{molecule_id}")
+def update_molecule(molecule_id: str, molecule: MoleculeUpdate):
+    if molecule_id not in molecule_db:
         raise HTTPException(status_code=404, detail="Molecule not found")
 
-    if molecule_update.smiles:
-        molecule.smiles = molecule_update.smiles
-    return {"message": "Molecule updated", "molecule": molecule}
+    # Update the molecule if a new SMILES string is provided
+    if molecule.smiles is not None:
+        molecule_db[molecule_id] = molecule.smiles
+
+    return {"id": molecule_id, "smiles": molecule_db[molecule_id]}
 
 
-@app.delete("/molecules/{identifier}")
-def delete_molecule(identifier: str):
-    if identifier in molecules_db:
-        del molecules_db[identifier]
-        return {"message": "Molecule deleted"}
-    else:
+@app.delete("/molecule/{molecule_id}")
+def delete_molecule(molecule_id: str):
+    if molecule_id not in molecule_db:
         raise HTTPException(status_code=404, detail="Molecule not found")
+    del molecule_db[molecule_id]
+    return {"message": "Molecule deleted"}
 
 
-@app.get("/molecules/", response_model=List[Molecule])
+@app.get("/molecules/")
 def list_molecules():
-    return list(molecules_db.values())
+    return [{"id": id, "smiles": smiles} for id, smiles in molecule_db.items()]
 
 
-@app.get("/molecules/search/", response_model=SubstructureSearchResponse)
-def search_molecules(substructure: str):
-    all_molecules = [molecule.smiles for molecule in molecules_db.values()]
-
-    try:
-        matched_molecules = substructure_search(all_molecules, substructure)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
+@app.post("/substructure/")
+def substructure_search_endpoint(substructure: Molecule):
+    molecules = list(molecule_db.values())
+    matched_molecules = substructure_search(molecules, substructure.smiles)
     return {"matched_molecules": matched_molecules}
-
-
-@app.post("/molecules/upload/")
-async def upload_molecules(file: UploadFile = File(...)):
-    content = await file.read()
-    smiles_list = content.decode("utf-8").splitlines()
-
-    added_molecules = []
-    for smiles in smiles_list:
-        molecule = Molecule(smiles=smiles, identifier=str(uuid.uuid4()))
-        molecules_db[molecule.identifier] = molecule
-        added_molecules.append(molecule)
-
-    return {"message": f"{len(added_molecules)} molecules uploaded"}
