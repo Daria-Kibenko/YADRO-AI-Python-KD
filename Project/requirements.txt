@@ -1,7 +1,7 @@
-fastapi~=0.115.5
+fastapi
 uvicorn
-rdkit~=2024.3.6
-sqlalchemy~=2.0.36
-pydantic~=2.10.1
-app~=0.0.1
-MyApplication~=0.1.0
+celery[redis]
+redis
+rdkit
+sqlalchemy
+pydantic
