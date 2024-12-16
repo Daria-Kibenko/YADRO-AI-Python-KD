@@ -12,7 +12,8 @@ class Molecule(Base):
     id = Column(Integer, primary_key=True, index=True)
     smiles = Column(String, index=True)
 
+DATABASE_URL = "postgresql+asyncpg://user:password@localhost/db"  # Use asyncpg for async connections
 
-DATABASE_URL = "postgresql+asyncpg://user:password@localhost/db"
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine, future=True)
+
